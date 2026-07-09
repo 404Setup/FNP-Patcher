@@ -1,5 +1,5 @@
 plugins {
-    id("net.fabricmc.fabric-loom") version "1.16-SNAPSHOT"
+    id("net.fabricmc.fabric-loom") version "1.17-SNAPSHOT"
     id("maven-publish")
 }
 
@@ -18,21 +18,22 @@ repositories {
         }
     }
     maven("https://api.modrinth.com/maven")
-    maven("https://mvnc.pkg.one/snapshots") {
-        name = "OneSnapshot"
-    }
+    maven("https://mvnc.pkg.one/snapshots")
+    maven("https://mvnc.pkg.one/releases")
     maven("https://jitpack.io")
 }
 
 dependencies {
     minecraft("com.mojang:minecraft:${project.property("minecraft_version")}")
     implementation("net.fabricmc:fabric-loader:${project.property("loader_version")}")
+    implementation("one.pkg.libsl:fabric:1.1.0+26.2")
     implementation("maven.modrinth:krypton:0.3.0")
-    include(implementation("org.yaml:snakeyaml:2.5")!!)
-    include(implementation("one.pkg:sewlia-config:${config_api_version}") {
+    implementation("org.yaml:snakeyaml:2.5")
+    implementation("one.pkg:sewlia-config:${config_api_version}") {
         exclude(group = "org.yaml")
         exclude(group = "org.slf4j")
-    })
+    }
+    implementation("one.pkg:tiny-utils:2.4.0")
 
     implementation("net.fabricmc.fabric-api:fabric-api:${project.property("fabric_version")}")
 }

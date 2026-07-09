@@ -13,8 +13,6 @@ public class ModConfig {
     private static boolean var1 = false;
     @ConfigTarget(group = "fix.issues128", value = "sync", comment = "Run bandwidth statistics on sync thread, which is closer to Vanilla behavior.")
     private static boolean var2 = true;
-    @ConfigTarget(group = "mixin", value = "loginVT", comment = "Replace player login validation thread with virtual thread")
-    private static boolean var3 = true;
     @ConfigTarget(group = "mixin", value = "textFilterVT", comment = "Replace text filter thread with virtual thread")
     private static boolean var4 = true;
     @ConfigTarget(group = "mixin", value = "utilVT", comment = "Replace download thread with virtual thread")
@@ -47,10 +45,6 @@ public class ModConfig {
     }
 
     public static class Mixin {
-        public static boolean isLoginVT() {
-            return var3;
-        }
-
         public static boolean isTextFilterVT() {
             return var4;
         }

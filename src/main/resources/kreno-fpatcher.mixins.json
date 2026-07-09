@@ -5,7 +5,6 @@
   "plugin": "one.pkg.kreno_fpatcher.mixin.ModMixinBootstrap",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "network.experimental.ServerLoginPacketListenerImplMixin",
     "network.experimental.ServerTextFilterMixin",
     "network.experimental.UtilMixin",
     "network.experimental.VarLongMixin",

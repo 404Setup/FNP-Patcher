@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 @Mixin(value = Varint21FrameDecoder.class, priority = 1500)
 public class Varint21FrameDecoderMixin {
     @Unique
-    private final ExecutorService kreno_fpatcher$executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
+    private static final ExecutorService kreno_fpatcher$executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
     @Shadow
     @Final
     private BandwidthDebugMonitor monitor;
@@ -46,6 +46,6 @@ public class Varint21FrameDecoderMixin {
     @Unique
     private void kreno_fpatcher$execute(int l) {
         if (ModConfig.Fix.Issues128.isSync()) this.monitor.onReceive(l + VarInt.getByteSize(l));
-        else this.kreno_fpatcher$executor.execute(() -> this.monitor.onReceive(l + VarInt.getByteSize(l)));
+        else kreno_fpatcher$executor.execute(() -> this.monitor.onReceive(l + VarInt.getByteSize(l)));
     }
 }
