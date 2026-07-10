@@ -30,7 +30,7 @@ dependencies {
     implementation("maven.modrinth:krypton:0.3.0")
     implementation("maven.modrinth:modmenu:20.0.1")
     implementation("org.yaml:snakeyaml:2.5")
-    implementation("one.pkg:sewlia-config:${configApiVersion}") {
+    implementation("one.pkg:sewlia-config:$configApiVersion") {
         exclude(group = "org.yaml")
         exclude(group = "org.slf4j")
     }
