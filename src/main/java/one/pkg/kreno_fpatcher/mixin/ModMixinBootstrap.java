@@ -2,6 +2,7 @@ package one.pkg.kreno_fpatcher.mixin;
 
 import net.fabricmc.loader.api.FabricLoader;
 import one.pkg.kreno_fpatcher.ModConfig;
+import one.pkg.libsl.api.loader.JavaLoader;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.tree.ClassNode;
@@ -59,12 +60,16 @@ public class ModMixinBootstrap implements IMixinConfigPlugin {
     }
 
     enum CONFIG {
-        TextFilter_VT("one.pkg.kreno_fpatcher.mixin.network.experimental.ServerTextFilterMixin", ModConfig.Mixin::isTextFilterVT),
-        Util_VT("one.pkg.kreno_fpatcher.mixin.network.experimental.UtilMixin", ModConfig.Mixin::isUtilVT),
-        BestVarLong("one.pkg.kreno_fpatcher.mixin.network.experimental.VarLongMixin", ModConfig.Mixin::isBestVarLong),
-        ClientEncrypt("one.pkg.kreno_fpatcher.mixin.network.experimental.ClientLoginMixin", ModConfig.Mixin::isClientEncrypt, "krypton"),
+        BestVarLong("one.pkg.kreno_fpatcher.mixin.network.microopt.VarLongMixin", ModConfig.Mixin::isBestVarLong),
+        TextFilter_VT("one.pkg.kreno_fpatcher.mixin.network.thread.ServerTextFilterMixin", ModConfig.Mixin::isTextFilterVT),
+        Util_VT("one.pkg.kreno_fpatcher.mixin.network.thread.UtilMixin", ModConfig.Mixin::isUtilVT),
+        RconClient("one.pkg.kreno_fpatcher.mixin.network.experimental", ModConfig.Mixin::isRconClient),
+        ServerEntitySendChanges("one.pkg.kreno_fpatcher.mixin.network.microopt.ServerEntitySendChanges", ModConfig.Mixin::isServerEntityMoveOpt),
+        ParticlePacketOpt("one.pkg.kreno_fpatcher.mixin.network.microopt.particle.EntityMixin", () -> ModConfig.Mixin.isParticlePacketOpt() && !JavaLoader.INSTANCE.isClient()),
+        ParticlePacketOpt2("one.pkg.kreno_fpatcher.mixin.network.microopt.particle.LivingEntityMixin", () -> ModConfig.Mixin.isParticlePacketOpt() && !JavaLoader.INSTANCE.isClient()),
+        ParticlePacketOpt3("one.pkg.kreno_fpatcher.mixin.network.microopt.particle.ServerEntityMixin", () -> ModConfig.Mixin.isParticlePacketOpt() && !JavaLoader.INSTANCE.isClient()),
+        ClientEncrypt("one.pkg.kreno_fpatcher.mixin.network.pipeline.encryption.ClientLoginMixin", ModConfig.Mixin::isClientEncrypt, "krypton"),
         KryptonFix128("one.pkg.kreno_fpatcher.mixin.network.fix.Varint21FrameDecoderMixin", ModConfig.Fix.Issues128::isEnabled, "krypton");
-
         public final String CLASS;
         public final Supplier<Boolean> configTarget;
         public final boolean hasMod;

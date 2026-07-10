@@ -1,4 +1,4 @@
-package one.pkg.kreno_fpatcher.mixin.network.experimental;
+package one.pkg.kreno_fpatcher.mixin.network.thread;
 
 import com.mojang.jtracy.TracyClient;
 import net.minecraft.TracingExecutor;

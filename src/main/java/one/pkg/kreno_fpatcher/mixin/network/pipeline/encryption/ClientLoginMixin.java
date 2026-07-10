@@ -1,4 +1,4 @@
-package one.pkg.kreno_fpatcher.mixin.network.experimental;
+package one.pkg.kreno_fpatcher.mixin.network.pipeline.encryption;
 
 import io.netty.channel.ChannelFutureListener;
 import me.steinborn.krypton.mod.shared.network.ClientConnectionEncryptionExtension;

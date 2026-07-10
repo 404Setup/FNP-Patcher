@@ -33,16 +33,6 @@ public class Varint21FrameDecoderMixin {
         if (this.monitor != null) kreno_fpatcher$execute(length);
     }
 
-    /*@TargetHandler(
-            mixin = "me.steinborn.krypton.mixin.shared.network.pipeline.SplitterHandlerMixin",
-            name = "decode",
-            prefix = "handler"
-    )
-    @Inject(method = "@MixinSquared:Handler", at = @At(value = "INVOKE", target = "Ljava/util/List;add(Ljava/lang/Object;)Z"))
-    private void doSomething(CallbackInfo originalCi, CallbackInfo ci, @Local int length) {
-        if (this.monitor != null) krypton_FNP$execute(length);
-    }*/
-
     @Unique
     private void kreno_fpatcher$execute(int l) {
         if (ModConfig.Fix.Issues128.isSync()) this.monitor.onReceive(l + VarInt.getByteSize(l));

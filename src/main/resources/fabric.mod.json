@@ -18,7 +18,8 @@
   "entrypoints": {
     "main": [
       "one.pkg.kreno_fpatcher.ModMain"
-    ]
+    ],
+    "modmenu": [ "one.pkg.kreno_fpatcher.ModMenuScreen" ]
   },
   "mixins": [
     "kreno-fpatcher.mixins.json"

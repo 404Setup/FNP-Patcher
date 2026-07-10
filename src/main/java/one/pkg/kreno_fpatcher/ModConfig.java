@@ -10,17 +10,29 @@ import one.pkg.config.metadata.ConfigMeta;
 public class ModConfig {
     public static final SewliaConfig config;
     @ConfigTarget(group = "fix.issues128", value = "enabled", comment = "Fix Traffic Statistics")
-    private static boolean var1 = false;
+    private static boolean fixIssues128Enabled = false;
     @ConfigTarget(group = "fix.issues128", value = "sync", comment = "Run bandwidth statistics on sync thread, which is closer to Vanilla behavior.")
-    private static boolean var2 = true;
+    private static boolean fixIssues128Sync = true;
     @ConfigTarget(group = "mixin", value = "textFilterVT", comment = "Replace text filter thread with virtual thread")
-    private static boolean var4 = true;
+    private static boolean textFilterVT = true;
     @ConfigTarget(group = "mixin", value = "utilVT", comment = "Replace download thread with virtual thread")
-    private static boolean var5 = true;
+    private static boolean utilVT = true;
     @ConfigTarget(group = "mixin", value = "bestVarLong", comment = "Optimized VarLong implementation")
-    private static boolean var6 = true;
+    private static boolean bestVarLong = true;
     @ConfigTarget(group = "mixin", value = "clientEncrypt", comment = "Enable new encryption optimizations on the client side")
-    private static boolean var7 = true;
+    private static boolean clientEncrypt = true;
+    @ConfigTarget(group = "mixin", value = "rconClient", comment = "Optimized RconClient implementation")
+    private static boolean rconClient = false;
+    @ConfigTarget(group = "mixin", value = "serverEntityMoveOpt", comment = "Skips sending movement packets if the entity hasn't moved, and downgrades position+rotation packets to just rotation if the entity only turned")
+    private static boolean serverEntityMoveOpt = false;
+    @ConfigTarget(group = "mixin", value = "packetProcessorOpt", comment = "Halves concurrent queue operations when draining queued packets on the main thread")
+    private static boolean packetProcessorOpt = true;
+    @ConfigTarget(group = "mixin", value = "particlePacketOpt", comment = "Reduces some potentially useless particle packets. This configuration only takes effect on the server side.")
+    private static boolean particlePacketOpt = true;
+    @ConfigTarget(group = "mixin", value = "trackedEntityOpt", comment = "Optimizes entity packet broadcasting and integrates with server-side entity culling")
+    private static boolean trackedEntityOpt = true;
+    @ConfigTarget(group = "gui", value = "oreui", comment = "Replace Minecraft style KReno UI with a newly designed OreUI")
+    private static boolean guiUseOreUITheme = false;
 
     static {
         config = new SewliaConfig(ConfigMeta.of(
@@ -35,30 +47,56 @@ public class ModConfig {
     public static class Fix {
         public static class Issues128 {
             public static boolean isEnabled() {
-                return var1;
+                return fixIssues128Enabled;
             }
 
             public static boolean isSync() {
-                return var2;
+                return fixIssues128Sync;
             }
+        }
+    }
+
+    public static class GUI {
+        public static boolean isOreUI() {
+            return guiUseOreUITheme;
         }
     }
 
     public static class Mixin {
         public static boolean isTextFilterVT() {
-            return var4;
+            return textFilterVT;
         }
 
         public static boolean isUtilVT() {
-            return var5;
+            return utilVT;
         }
 
         public static boolean isBestVarLong() {
-            return var6;
+            return bestVarLong;
         }
 
         public static boolean isClientEncrypt() {
-            return var7;
+            return clientEncrypt;
+        }
+
+        public static boolean isRconClient() {
+            return rconClient;
+        }
+
+        public static boolean isServerEntityMoveOpt() {
+            return serverEntityMoveOpt;
+        }
+
+        public static boolean isPacketProcessorOpt() {
+            return packetProcessorOpt;
+        }
+
+        public static boolean isParticlePacketOpt() {
+            return particlePacketOpt;
+        }
+
+        public static boolean isTrackedEntityOpt() {
+            return trackedEntityOpt;
         }
     }
 }

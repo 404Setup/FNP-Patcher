@@ -5,7 +5,7 @@ plugins {
 
 version = project.property("mod_version") as String
 group = project.property("maven_group") as String
-var config_api_version = project.property("config_api_version") as String
+var configApiVersion = project.property("config_api_version") as String
 
 base {
     archivesName.set(project.property("archives_base_name") as String)
@@ -28,8 +28,9 @@ dependencies {
     implementation("net.fabricmc:fabric-loader:${project.property("loader_version")}")
     implementation("one.pkg.libsl:fabric:1.1.0+26.2")
     implementation("maven.modrinth:krypton:0.3.0")
+    implementation("maven.modrinth:modmenu:20.0.1")
     implementation("org.yaml:snakeyaml:2.5")
-    implementation("one.pkg:sewlia-config:${config_api_version}") {
+    implementation("one.pkg:sewlia-config:${configApiVersion}") {
         exclude(group = "org.yaml")
         exclude(group = "org.slf4j")
     }
