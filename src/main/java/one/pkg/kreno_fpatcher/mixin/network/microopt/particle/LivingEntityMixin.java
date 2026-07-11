@@ -23,7 +23,7 @@ public abstract class LivingEntityMixin {
             )
     )
     private boolean kreno$lessPacket(List<ParticleOptions> instance) {
-        return ModConfig.Mixin.isParticlePacketOpt() && instance.isEmpty();
+        return ModConfig.Mixin.isParticlePacketOpt() || instance.isEmpty();
     }
 
     @Redirect(

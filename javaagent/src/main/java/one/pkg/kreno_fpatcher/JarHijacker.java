@@ -41,38 +41,46 @@ public class JarHijacker {
         return modified ? newUrls : originalUrls;
     }
 
-    public static Path getBuiltinJarPath() {
-        String jarName = TARGET_JARS[2];
-        try {
-            URL resource = JarHijacker.class.getResource("/META-INF/jars/" + jarName);
-            if (resource != null) {
-                System.out.println("[KRENO FPATCHER] Found builtin jar resource: " + resource);
+    private static volatile URL cachedBuiltinJarUrl = null;
 
-                Path tempFile = extractToTemp(resource, jarName);
-                if (tempFile != null) {
-                    return tempFile;
+    public static Path getBuiltinJarPath() {
+        for (String jarName : TARGET_JARS) {
+            try {
+                URL resource = JarHijacker.class.getResource("/META-INF/jars/" + jarName);
+                if (resource != null) {
+                    System.out.println("[KRENO FPATCHER] Found builtin jar resource: " + resource);
+
+                    Path tempFile = extractToTemp(resource, jarName);
+                    if (tempFile != null) {
+                        return tempFile;
+                    }
                 }
-            } else {
-                System.err.println("[KRENO FPATCHER] Builtin jar not found in resources: /META-INF/jars/" + jarName);
+            } catch (Exception e) {
+                System.err.println("[KRENO FPATCHER] Failed to load builtin jar " + jarName + ": " + e.getMessage());
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            System.err.println("[KRENO FPATCHER] Failed to load builtin jar " + jarName + ": " + e.getMessage());
-            e.printStackTrace();
         }
+        System.err.println("[KRENO FPATCHER] Builtin jar not found in resources.");
         return null;
     }
 
     public static URL getBuiltinJarUrl() {
-        try {
-            Path jarPath = getBuiltinJarPath();
-            if (jarPath != null) {
-                return jarPath.toUri().toURL();
+        if (cachedBuiltinJarUrl == null) {
+            synchronized (JarHijacker.class) {
+                if (cachedBuiltinJarUrl == null) {
+                    try {
+                        Path jarPath = getBuiltinJarPath();
+                        if (jarPath != null) {
+                            cachedBuiltinJarUrl = jarPath.toUri().toURL();
+                        }
+                    } catch (Exception e) {
+                        System.err.println("[KRENO FPATCHER] Failed to load builtin jar: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
             }
-        } catch (Exception e) {
-            System.err.println("[KRENO FPATCHER] Failed to load builtin jar " + TARGET_JARS[2] + ": " + e.getMessage());
-            e.printStackTrace();
         }
-        return null;
+        return cachedBuiltinJarUrl;
     }
 
     private static Path extractToTemp(URL resource, String jarName) {

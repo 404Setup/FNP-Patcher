@@ -27,7 +27,6 @@ public class ServerCullingManager {
     private static final long HIDE_DELAY_MS = 1000;
     private static final Map<ServerPlayer, ParticleCullCache> PARTICLE_CACHE = new WeakConcurrentHashMap<>();
     private static final Map<ServerPlayer, EntityCullCache> ENTITY_CACHE = new WeakConcurrentHashMap<>();
-    private static final ThreadLocal<double[]> PROBE_COORDS = ThreadLocal.withInitial(() -> new double[18]);
     private static volatile ExecutorService EXECUTOR = Executors.newWorkStealingPool();
     @SuppressWarnings("unchecked")
     private static volatile Map<Integer, CullingState>[] activeVisibilityMaps = new Map[0];
@@ -100,13 +99,17 @@ public class ServerCullingManager {
         boolean inFOV = isInFOVCached(state, dx, dy, dz, rotX, rotY, distanceSq);
 
         if (inFOV) {
-            if (now - state.lastCheckTime > CHECK_INTERVAL_MS) {
+            boolean justEnteredFOV = !state.wasInFOV;
+            state.wasInFOV = true;
+            if (justEnteredFOV || now - state.lastCheckTime > CHECK_INTERVAL_MS) {
                 if (!state.isChecking) {
                     state.isChecking = true;
                     state.lastCheckTime = now;
                     queueRaytraceCheck(state, player.level(), player.getEyePosition(), entity.getBoundingBox().inflate(0.5));
                 }
             }
+        } else {
+            state.wasInFOV = false;
         }
 
         boolean isVisible = inFOV && state.lastRaytraceResult;
@@ -249,30 +252,13 @@ public class ServerCullingManager {
         Vec3 center = aabb.getCenter();
         if (isLineOfSightClear(level, eye, center)) return true;
 
-        double[] p = PROBE_COORDS.get();
         double cx = center.x, cz = center.z;
-        p[0] = cx;
-        p[1] = aabb.maxY;
-        p[2] = cz;
-        p[3] = cx;
-        p[4] = aabb.minY;
-        p[5] = cz;
-        p[6] = aabb.minX;
-        p[7] = aabb.maxY;
-        p[8] = aabb.minZ;
-        p[9] = aabb.maxX;
-        p[10] = aabb.maxY;
-        p[11] = aabb.maxZ;
-        p[12] = aabb.minX;
-        p[13] = aabb.minY;
-        p[14] = aabb.maxZ;
-        p[15] = aabb.maxX;
-        p[16] = aabb.minY;
-        p[17] = aabb.minZ;
-
-        for (int i = 0; i < 18; i += 3) {
-            if (isLineOfSightClear(level, eye, new Vec3(p[i], p[i + 1], p[i + 2]))) return true;
-        }
+        if (isLineOfSightClear(level, eye, new Vec3(cx, aabb.maxY, cz))) return true;
+        if (isLineOfSightClear(level, eye, new Vec3(cx, aabb.minY, cz))) return true;
+        if (isLineOfSightClear(level, eye, new Vec3(aabb.minX, aabb.maxY, aabb.minZ))) return true;
+        if (isLineOfSightClear(level, eye, new Vec3(aabb.maxX, aabb.maxY, aabb.maxZ))) return true;
+        if (isLineOfSightClear(level, eye, new Vec3(aabb.minX, aabb.minY, aabb.maxZ))) return true;
+        if (isLineOfSightClear(level, eye, new Vec3(aabb.maxX, aabb.minY, aabb.minZ))) return true;
         return false;
     }
 
@@ -409,5 +395,6 @@ public class ServerCullingManager {
         float cosF = 1f;
         float sinG = 0f;
         float cosG = 1f;
+        boolean wasInFOV = false;
     }
 }

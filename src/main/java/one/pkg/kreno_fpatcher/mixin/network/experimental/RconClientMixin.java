@@ -36,23 +36,27 @@ public class RconClientMixin {
 
     @Unique
     private void send(int id, int type, byte[] messageBytes, int offset, int length) throws IOException {
-        ByteBuf buf = ByteBufAllocator.DEFAULT.buffer(length + PACKET_OVERHEAD + 4);
-        try {
-            buf.writeIntLE(length + PACKET_OVERHEAD);
-            buf.writeIntLE(id);
-            buf.writeIntLE(type);
-            buf.writeBytes(messageBytes, offset, length);
-            buf.writeByte(0);
-            buf.writeByte(0);
+        int packetLength = length + PACKET_OVERHEAD;
+        byte[] buf = new byte[packetLength + 4];
 
-            if (buf.hasArray()) {
-                this.client.getOutputStream().write(buf.array(), buf.arrayOffset() + buf.readerIndex(), buf.readableBytes());
-            } else {
-                buf.readBytes(this.client.getOutputStream(), buf.readableBytes());
-            }
-        } finally {
-            buf.release();
-        }
+        buf[0] = (byte) (packetLength & 0xFF);
+        buf[1] = (byte) ((packetLength >>> 8) & 0xFF);
+        buf[2] = (byte) ((packetLength >>> 16) & 0xFF);
+        buf[3] = (byte) ((packetLength >>> 24) & 0xFF);
+
+        buf[4] = (byte) (id & 0xFF);
+        buf[5] = (byte) ((id >>> 8) & 0xFF);
+        buf[6] = (byte) ((id >>> 16) & 0xFF);
+        buf[7] = (byte) ((id >>> 24) & 0xFF);
+
+        buf[8] = (byte) (type & 0xFF);
+        buf[9] = (byte) ((type >>> 8) & 0xFF);
+        buf[10] = (byte) ((type >>> 16) & 0xFF);
+        buf[11] = (byte) ((type >>> 24) & 0xFF);
+
+        System.arraycopy(messageBytes, offset, buf, 12, length);
+
+        this.client.getOutputStream().write(buf);
     }
 
     /**

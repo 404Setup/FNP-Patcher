@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.gen.Invoker;
 
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Mixin(Util.class)
@@ -23,14 +24,17 @@ public abstract class UtilMixin {
     @Overwrite
     private static TracingExecutor makeIoExecutor(String name, boolean daemon) {
         AtomicInteger atomicinteger = new AtomicInteger(1);
-        return new TracingExecutor(Executors.newCachedThreadPool((r) -> {
+        ThreadFactory factory = (r) -> {
             Thread thread = daemon ? Thread.ofVirtual().unstarted(r) : new Thread(r);
             String s = name + atomicinteger.getAndIncrement();
             TracyClient.setThreadName(s, name.hashCode());
             thread.setName(s);
-            thread.setDaemon(daemon);
+            if (!thread.isVirtual()) {
+                thread.setDaemon(daemon);
+            }
             thread.setUncaughtExceptionHandler(UtilMixin::onThreadException);
             return thread;
-        }));
+        };
+        return new TracingExecutor(daemon ? Executors.newThreadPerTaskExecutor(factory) : Executors.newCachedThreadPool(factory));
     }
 }
