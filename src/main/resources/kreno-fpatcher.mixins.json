@@ -6,6 +6,7 @@
   "compatibilityLevel": "JAVA_25",
   "mixins": [
     "accessor.ClientboundMoveEntityPacketAccessor", "accessor.LevelChunkSectionAccessor",
+    "network.chunk.EntityCullingMixin", "network.chunk.ServerEntityCullingMixin", "network.chunk.TrackedEntityMixin",
     "network.experimental.RconClientMixin", "network.fix.ServerStatusPacketListenerImplMixin",
     "network.fix.Varint21FrameDecoderMixin", "network.microopt.PacketProcessorMixin",
     "network.microopt.ServerEntitySendChanges", "network.microopt.VarLongMixin",

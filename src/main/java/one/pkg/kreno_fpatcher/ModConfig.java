@@ -5,6 +5,7 @@ import one.pkg.config.SewliaConfig;
 import one.pkg.config.annotation.config.ConfigEntry;
 import one.pkg.config.annotation.config.ConfigTarget;
 import one.pkg.config.metadata.ConfigMeta;
+import one.pkg.libsl.api.loader.JavaLoader;
 
 @ConfigEntry("kreno_fpatcher")
 public class ModConfig {
@@ -33,6 +34,12 @@ public class ModConfig {
     private static boolean trackedEntityOpt = true;
     @ConfigTarget(group = "gui", value = "oreui", comment = "Replace Minecraft style KReno UI with a newly designed OreUI")
     private static boolean guiUseOreUITheme = false;
+    @ConfigTarget(group = "culling", value = "particle", comment = "Smart particle culling on server side")
+    private static boolean cullingParticle = true;
+    @ConfigTarget(group = "culling", value = "entity", comment = "Smart entity culling on server side")
+    private static boolean cullingEntity = true;
+    @ConfigTarget(group = "culling", value = "asyncMode", comment = "Asynchronous execution mode for Cuttings system")
+    private static boolean cullingAsyncMode = true;
 
     static {
         config = new SewliaConfig(ConfigMeta.of(
@@ -97,6 +104,20 @@ public class ModConfig {
 
         public static boolean isTrackedEntityOpt() {
             return trackedEntityOpt;
+        }
+    }
+
+    public static class Culling {
+        public static boolean isParticleEnabled() {
+            return !JavaLoader.INSTANCE.isClient() && cullingParticle;
+        }
+
+        public static boolean isEntityEnabled() {
+            return !JavaLoader.INSTANCE.isClient() && cullingEntity;
+        }
+
+        public static boolean isAsyncMode() {
+            return cullingAsyncMode;
         }
     }
 }
