@@ -1,7 +1,9 @@
 package one.pkg.kreno_fpatcher.util.culling;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
@@ -10,36 +12,28 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import one.pkg.kreno_fpatcher.ModConfig;
-import one.pkg.tinyutils.map.WeakConcurrentHashMap;
 
 import java.util.Arrays;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 public class ServerCullingManager {
     public static final double NEAR_DISTANCE_SQ = 64.0;
     private static final float DEG_TO_RAD = (float) Math.PI / 180F;
-    private static final Map<ServerPlayer, Map<Integer, CullingState>> VISIBILITY_CACHE = new WeakConcurrentHashMap<>();
     private static final long CHECK_INTERVAL_TICKS = 10;
     private static final long HIDE_DELAY_TICKS = 20;
-    private static final Map<ServerPlayer, ParticleCullCache> PARTICLE_CACHE = new WeakConcurrentHashMap<>();
-    private static final Map<ServerPlayer, EntityCullCache> ENTITY_CACHE = new WeakConcurrentHashMap<>();
 
-    public static void onEnd() {
-        VISIBILITY_CACHE.clear();
-        PARTICLE_CACHE.clear();
-        ENTITY_CACHE.clear();
-    }
-
-    private static int fastFloor(double val) {
-        int i = (int) val;
-        return val < i ? i - 1 : i;
-    }
-
-    private static int fastFloor(float val) {
-        int i = (int) val;
-        return val < i ? i - 1 : i;
+    public static void updatePlayerLook(ServerPlayer player, long tickCount) {
+        IKrenoPlayerCulling p = (IKrenoPlayerCulling) player;
+        if (p.kreno$getLastLookTick() != tickCount) {
+            float rotX = player.getXRot();
+            float rotY = player.getYRot();
+            float f = rotX * DEG_TO_RAD;
+            float g = -rotY * DEG_TO_RAD;
+            float cosG = Mth.cos(g);
+            float sinG = Mth.sin(g);
+            float cosF = Mth.cos(f);
+            float sinF = Mth.sin(f);
+            p.kreno$setLook(sinG * cosF, -sinF, cosG * cosF, tickCount);
+        }
     }
 
     public static boolean isEntityVisible(ServerPlayer player, Entity entity, long tickCount) {
@@ -73,8 +67,10 @@ public class ServerCullingManager {
             return true;
         }
 
-        EntityCullCache hashCache = getOrCreate(ENTITY_CACHE, player, EntityCullCache::new);
-        hashCache.updateLookVector(player, tickCount);
+        IKrenoPlayerCulling cullPlayer = (IKrenoPlayerCulling) player;
+        updatePlayerLook(player, tickCount);
+        EntityCullCache hashCache = cullPlayer.kreno$getEntityCache();
+        hashCache.clearIfNewTick(tickCount);
 
         long gridKey = toGridKey(cx, cy, cz);
 
@@ -84,8 +80,11 @@ public class ServerCullingManager {
             return true;
         }
 
-        double dot = hashCache.lookX * dx + hashCache.lookY * dy + hashCache.lookZ * dz;
-        boolean inFOV = dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
+        double lookX = cullPlayer.kreno$getLookX();
+        double lookY = cullPlayer.kreno$getLookY();
+        double lookZ = cullPlayer.kreno$getLookZ();
+        double dot = lookX * dx + lookY * dy + lookZ * dz;
+        boolean inFOV = dot >= 0.0;
 
         if (inFOV) {
             boolean justEnteredFOV = !state.wasInFOV;
@@ -113,8 +112,7 @@ public class ServerCullingManager {
     }
 
     public static boolean getLastSentVisible(ServerPlayer player, Entity entity) {
-        Map<Integer, CullingState> map = VISIBILITY_CACHE.get(player);
-        if (map == null) return true;
+        Int2ObjectOpenHashMap<CullingState> map = ((IKrenoPlayerCulling) player).kreno$getVisibilityCache();
         CullingState state = map.get(entity.getId());
         if (state == null) return true;
         return state.lastSentVisible;
@@ -126,25 +124,17 @@ public class ServerCullingManager {
     }
 
     public static void removePlayerEntityState(ServerPlayer player, Entity entity) {
-        Map<Integer, CullingState> map = VISIBILITY_CACHE.get(player);
-        if (map != null) {
-            map.remove(entity.getId());
-        }
+        Int2ObjectOpenHashMap<CullingState> map = ((IKrenoPlayerCulling) player).kreno$getVisibilityCache();
+        map.remove(entity.getId());
     }
 
     private static CullingState getEntityCullingState(ServerPlayer player, Entity entity) {
-        Map<Integer, CullingState> map = VISIBILITY_CACHE.get(player);
-        if (map == null) {
-            Map<Integer, CullingState> newMap = new ConcurrentHashMap<>();
-            Map<Integer, CullingState> existing = VISIBILITY_CACHE.putIfAbsent(player, newMap);
-            map = existing != null ? existing : newMap;
-        }
-        Integer entityId = entity.getId();
+        Int2ObjectOpenHashMap<CullingState> map = ((IKrenoPlayerCulling) player).kreno$getVisibilityCache();
+        int entityId = entity.getId();
         CullingState state = map.get(entityId);
         if (state == null) {
             state = new CullingState();
-            CullingState prev = map.putIfAbsent(entityId, state);
-            if (prev != null) state = prev;
+            map.put(entityId, state);
         }
         return state;
     }
@@ -198,19 +188,6 @@ public class ServerCullingManager {
 
     public static boolean isLineOfSightClear(Level level, double sx, double sy, double sz, double ex, double ey, double ez) {
         try {
-            int minX = fastFloor(Math.min(sx, ex)) >> 4;
-            int minZ = fastFloor(Math.min(sz, ez)) >> 4;
-            int maxX = fastFloor(Math.max(sx, ex)) >> 4;
-            int maxZ = fastFloor(Math.max(sz, ez)) >> 4;
-
-            if (maxX - minX > 1 || maxZ - minZ > 1) {
-                for (int x = minX; x <= maxX; x++) {
-                    for (int z = minZ; z <= maxZ; z++) {
-                        if (!level.hasChunk(x, z)) return true;
-                    }
-                }
-            }
-
             ClipContext ctx = new ClipContext(
                     new Vec3(sx, sy, sz),
                     new Vec3(ex, ey, ez),
@@ -224,42 +201,30 @@ public class ServerCullingManager {
         }
     }
 
-    public static void removePlayer(ServerPlayer player) {
-        VISIBILITY_CACHE.remove(player);
-        PARTICLE_CACHE.remove(player);
-        ENTITY_CACHE.remove(player);
-    }
-
     public static void removeEntity(Entity entity) {
         int id = entity.getId();
-        for (Map<Integer, CullingState> map : VISIBILITY_CACHE.values()) {
-            map.remove(id);
+        if (entity.level() != null && entity.level().getServer() != null &&
+                entity.level().getServer().getPlayerList() != null) {
+            for (ServerPlayer player : entity.level().getServer().getPlayerList().getPlayers()) {
+                ((IKrenoPlayerCulling) player).kreno$getVisibilityCache().remove(id);
+            }
         }
-    }
-
-    private static <K, V> V getOrCreate(Map<K, V> map, K key, Supplier<V> factory) {
-        V value = map.get(key);
-        if (value == null) {
-            V created = factory.get();
-            V existing = map.putIfAbsent(key, created);
-            value = existing != null ? existing : created;
-        }
-        return value;
     }
 
     private static long toGridKey(float cx, float cy, float cz) {
-        int gridX = fastFloor(cx * 0.125f);
-        int gridY = fastFloor(cy * 0.125f);
-        int gridZ = fastFloor(cz * 0.125f);
+        int gridX = Mth.floor(cx * 0.125f);
+        int gridY = Mth.floor(cy * 0.125f);
+        int gridZ = Mth.floor(cz * 0.125f);
         return ((long) (gridX & 0x3FFFFF) << 42) | ((long) (gridY & 0xFFFFF) << 22) | (gridZ & 0x3FFFFF);
     }
 
     public static boolean isParticleVisible(ServerPlayer player, double x, double y, double z) {
         if (!ModConfig.Culling.isParticleEnabled() || !player.level().getServer().isDedicatedServer()) return true;
 
-        ParticleCullCache cache = getOrCreate(PARTICLE_CACHE, player, ParticleCullCache::new);
         long tickCount = player.level().getServer().getTickCount();
-        cache.updateLookVector(player, tickCount);
+        updatePlayerLook(player, tickCount);
+        IKrenoPlayerCulling cullPlayer = (IKrenoPlayerCulling) player;
+        ParticleCullCache cache = cullPlayer.kreno$getParticleCache();
 
         double eyeX = player.getX();
         double eyeY = player.getEyeY();
@@ -273,14 +238,17 @@ public class ServerCullingManager {
             return true;
         }
 
-        double dot = cache.lookX * dx + cache.lookY * dy + cache.lookZ * dz;
-        boolean inFOV = dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
+        double lookX = cullPlayer.kreno$getLookX();
+        double lookY = cullPlayer.kreno$getLookY();
+        double lookZ = cullPlayer.kreno$getLookZ();
+        double dot = lookX * dx + lookY * dy + lookZ * dz;
+        boolean inFOV = dot >= 0.0;
 
         if (!inFOV) return false;
 
-        int bx = fastFloor(x);
-        int by = fastFloor(y);
-        int bz = fastFloor(z);
+        int bx = Mth.floor(x);
+        int by = Mth.floor(y);
+        int bz = Mth.floor(z);
         long key = ((long) bx & 0x3FFFFFFL) | (((long) by & 0xFFFL) << 26) | (((long) bz & 0x3FFFFFFL) << 38);
 
         int cachedVal = cache.get(key, tickCount);
@@ -294,35 +262,14 @@ public class ServerCullingManager {
         return result;
     }
 
-    private static class ParticleCullCache {
+    public static class ParticleCullCache {
         private static final int CACHE_SIZE = 128;
         private final long[] keys = new long[CACHE_SIZE];
         private final boolean[] values = new boolean[CACHE_SIZE];
         private final long[] times = new long[CACHE_SIZE];
-        long lastTick = -1;
-        double lookX;
-        double lookY;
-        double lookZ;
 
         public ParticleCullCache() {
             Arrays.fill(keys, -1L);
-        }
-
-        public void updateLookVector(ServerPlayer player, long tickCount) {
-            if (this.lastTick != tickCount) {
-                float rotX = player.getXRot();
-                float rotY = player.getYRot();
-                float f = rotX * DEG_TO_RAD;
-                float g = -rotY * DEG_TO_RAD;
-                float cosG = (float) Math.cos(g);
-                float sinG = (float) Math.sin(g);
-                float cosF = (float) Math.cos(f);
-                float sinF = (float) Math.sin(f);
-                this.lookX = sinG * cosF;
-                this.lookY = -sinF;
-                this.lookZ = cosG * cosF;
-                this.lastTick = tickCount;
-            }
         }
 
         public int get(long key, long tickCount) {
@@ -341,47 +288,33 @@ public class ServerCullingManager {
         }
     }
 
-    private static class EntityCullCache {
-        LongOpenHashSet grid = new LongOpenHashSet();
-        long lastTick = -1;
-        double lookX;
-        double lookY;
-        double lookZ;
+    public static class EntityCullCache {
+        public final LongOpenHashSet grid = new LongOpenHashSet();
+        private long lastTick = -1;
 
-        public void updateLookVector(ServerPlayer player, long tickCount) {
+        public void clearIfNewTick(long tickCount) {
             if (this.lastTick != tickCount) {
-                float rotX = player.getXRot();
-                float rotY = player.getYRot();
-                float f = rotX * DEG_TO_RAD;
-                float g = -rotY * DEG_TO_RAD;
-                float cosG = (float) Math.cos(g);
-                float sinG = (float) Math.sin(g);
-                float cosF = (float) Math.cos(f);
-                float sinF = (float) Math.sin(f);
-                this.lookX = sinG * cosF;
-                this.lookY = -sinF;
-                this.lookZ = cosG * cosF;
                 this.grid.clear();
                 this.lastTick = tickCount;
             }
         }
     }
 
-    private static class CullingState {
-        boolean lastRaytraceResult = true;
-        boolean isCurrentlyVisible = true;
-        long lastCheckTick = 0;
-        long hiddenSince = 0;
-        float lastDistanceSq = 0;
-        boolean lastSentVisible = true;
-        float lastPx = Float.MAX_VALUE;
-        float lastPy = Float.MAX_VALUE;
-        float lastPz = Float.MAX_VALUE;
-        float lastTx = Float.MAX_VALUE;
-        float lastTy = Float.MAX_VALUE;
-        float lastTz = Float.MAX_VALUE;
-        float lastRotX = Float.MAX_VALUE;
-        float lastRotY = Float.MAX_VALUE;
-        boolean wasInFOV = false;
+    public static class CullingState {
+        public boolean lastRaytraceResult = true;
+        public boolean isCurrentlyVisible = true;
+        public long lastCheckTick = 0;
+        public long hiddenSince = 0;
+        public float lastDistanceSq = 0;
+        public boolean lastSentVisible = true;
+        public float lastPx = Float.MAX_VALUE;
+        public float lastPy = Float.MAX_VALUE;
+        public float lastPz = Float.MAX_VALUE;
+        public float lastTx = Float.MAX_VALUE;
+        public float lastTy = Float.MAX_VALUE;
+        public float lastTz = Float.MAX_VALUE;
+        public float lastRotX = Float.MAX_VALUE;
+        public float lastRotY = Float.MAX_VALUE;
+        public boolean wasInFOV = false;
     }
 }
