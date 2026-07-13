@@ -99,6 +99,9 @@ public class ServerEntitySendChanges {
         if (packet instanceof ClientboundMoveEntityPacket.PosRot posRot) {
             ClientboundMoveEntityPacketAccessor accessor = (ClientboundMoveEntityPacketAccessor) posRot;
             if (posRot.getXa() == 0 && posRot.getYa() == 0 && posRot.getZa() == 0) {
+                if (this.wasOnGround == this.entity.onGround() && accessor.kreno$getYRot() == 0 && accessor.kreno$getXRot() == 0) {
+                    return;
+                }
                 packet = new ClientboundMoveEntityPacket.Rot(accessor.getEntityId(), accessor.kreno$getYRot(),
                         accessor.kreno$getXRot(), posRot.isOnGround());
             }

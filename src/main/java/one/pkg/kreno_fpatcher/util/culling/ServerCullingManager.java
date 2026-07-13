@@ -1,6 +1,6 @@
 package one.pkg.kreno_fpatcher.util.culling;
 
-import it.unimi.dsi.fastutil.longs.LongArraySet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
@@ -14,40 +14,22 @@ import one.pkg.tinyutils.map.WeakConcurrentHashMap;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 
 public class ServerCullingManager {
     public static final double NEAR_DISTANCE_SQ = 64.0;
     private static final float DEG_TO_RAD = (float) Math.PI / 180F;
     private static final Map<ServerPlayer, Map<Integer, CullingState>> VISIBILITY_CACHE = new WeakConcurrentHashMap<>();
-    private static final Object ACTIVE_MAPS_LOCK = new Object();
     private static final long CHECK_INTERVAL_MS = 500;
     private static final long HIDE_DELAY_MS = 1000;
     private static final Map<ServerPlayer, ParticleCullCache> PARTICLE_CACHE = new WeakConcurrentHashMap<>();
     private static final Map<ServerPlayer, EntityCullCache> ENTITY_CACHE = new WeakConcurrentHashMap<>();
-    private static volatile ExecutorService EXECUTOR = Executors.newWorkStealingPool();
-    @SuppressWarnings("unchecked")
-    private static volatile Map<Integer, CullingState>[] activeVisibilityMaps = new Map[0];
-
-    @SuppressWarnings("unchecked")
-    private static void updateActiveVisibilityMaps() {
-        synchronized (ACTIVE_MAPS_LOCK) {
-            activeVisibilityMaps = VISIBILITY_CACHE.values().toArray(new Map[0]);
-        }
-    }
 
     public static void onEnd() {
         VISIBILITY_CACHE.clear();
-        updateActiveVisibilityMaps();
         PARTICLE_CACHE.clear();
         ENTITY_CACHE.clear();
-        if (EXECUTOR != null && !EXECUTOR.isShutdown())
-            EXECUTOR.shutdown();
-        EXECUTOR = Executors.newWorkStealingPool();
     }
-
 
     public static boolean isEntityVisible(ServerPlayer player, Entity entity, long now) {
         if (!ModConfig.Culling.isEntityEnabled() || !player.level().getServer().isDedicatedServer()) return true;
@@ -102,10 +84,11 @@ public class ServerCullingManager {
             boolean justEnteredFOV = !state.wasInFOV;
             state.wasInFOV = true;
             if (justEnteredFOV || now - state.lastCheckTime > CHECK_INTERVAL_MS) {
-                if (!state.isChecking) {
-                    state.isChecking = true;
-                    state.lastCheckTime = now;
-                    queueRaytraceCheck(state, player.level(), player.getEyePosition(), entity.getBoundingBox().inflate(0.5));
+                state.lastCheckTime = now;
+                try {
+                    state.lastRaytraceResult = checkAABBVisibleInflated(player.level(), ex, ey, ez, entity.getBoundingBox(), 0.5);
+                } catch (Exception e) {
+                    state.lastRaytraceResult = true;
                 }
             }
         } else {
@@ -147,12 +130,7 @@ public class ServerCullingManager {
         if (map == null) {
             Map<Integer, CullingState> newMap = new ConcurrentHashMap<>();
             Map<Integer, CullingState> existing = VISIBILITY_CACHE.putIfAbsent(player, newMap);
-            if (existing == null) {
-                map = newMap;
-                updateActiveVisibilityMaps();
-            } else {
-                map = existing;
-            }
+            map = existing != null ? existing : newMap;
         }
         Integer entityId = entity.getId();
         CullingState state = map.get(entityId);
@@ -162,22 +140,6 @@ public class ServerCullingManager {
             if (prev != null) state = prev;
         }
         return state;
-    }
-
-    private static void queueRaytraceCheck(CullingState state, Level level, Vec3 eyePos, AABB aabb) {
-        if (ModConfig.Culling.isAsyncMode()) {
-            if (EXECUTOR != null && !EXECUTOR.isShutdown()) {
-                EXECUTOR.submit(new AsyncAABBCheckTask(state, level, eyePos, aabb));
-                return;
-            }
-        }
-        try {
-            state.lastRaytraceResult = checkAABBVisible(level, eyePos, aabb);
-        } catch (Exception e) {
-            state.lastRaytraceResult = true;
-        } finally {
-            state.isChecking = false;
-        }
     }
 
     private static boolean checkAndUpdateStatePosition(CullingState state, float ex, float ey, float ez, float cx, float cy, float cz, float rotX, float rotY) {
@@ -213,10 +175,6 @@ public class ServerCullingManager {
         return dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
     }
 
-    /**
-     * FOV check that reuses cached sin/cos values from {@code state} when the player's rotation
-     * has not changed significantly, avoiding expensive transcendental math calls every tick.
-     */
     private static boolean isInFOVCached(CullingState state, float dx, float dy, float dz, float rotX, float rotY, float distanceSq) {
         if (Math.abs(state.cachedRotX - rotX) >= 0.01f || Math.abs(state.cachedRotY - rotY) >= 0.01f) {
             float f = rotX * DEG_TO_RAD;
@@ -248,33 +206,48 @@ public class ServerCullingManager {
         }
     }
 
-    public static boolean checkAABBVisible(Level level, Vec3 eye, AABB aabb) {
-        Vec3 center = aabb.getCenter();
-        if (isLineOfSightClear(level, eye, center)) return true;
+    public static boolean checkAABBVisibleInflated(Level level, double sx, double sy, double sz, AABB aabb, double inflate) {
+        double minX = aabb.minX - inflate;
+        double minY = aabb.minY - inflate;
+        double minZ = aabb.minZ - inflate;
+        double maxX = aabb.maxX + inflate;
+        double maxY = aabb.maxY + inflate;
+        double maxZ = aabb.maxZ + inflate;
 
-        double cx = center.x, cz = center.z;
-        if (isLineOfSightClear(level, eye, new Vec3(cx, aabb.maxY, cz))) return true;
-        if (isLineOfSightClear(level, eye, new Vec3(cx, aabb.minY, cz))) return true;
-        if (isLineOfSightClear(level, eye, new Vec3(aabb.minX, aabb.maxY, aabb.minZ))) return true;
-        if (isLineOfSightClear(level, eye, new Vec3(aabb.maxX, aabb.maxY, aabb.maxZ))) return true;
-        if (isLineOfSightClear(level, eye, new Vec3(aabb.minX, aabb.minY, aabb.maxZ))) return true;
-        if (isLineOfSightClear(level, eye, new Vec3(aabb.maxX, aabb.minY, aabb.minZ))) return true;
+        double cx = minX + (maxX - minX) * 0.5;
+        double cy = minY + (maxY - minY) * 0.5;
+        double cz = minZ + (maxZ - minZ) * 0.5;
+
+        if (isLineOfSightClear(level, sx, sy, sz, cx, cy, cz)) return true;
+
+        if (isLineOfSightClear(level, sx, sy, sz, cx, maxY, cz)) return true;
+        if (isLineOfSightClear(level, sx, sy, sz, cx, minY, cz)) return true;
+        if (isLineOfSightClear(level, sx, sy, sz, minX, maxY, minZ)) return true;
+        if (isLineOfSightClear(level, sx, sy, sz, maxX, maxY, maxZ)) return true;
+        if (isLineOfSightClear(level, sx, sy, sz, minX, minY, maxZ)) return true;
+        if (isLineOfSightClear(level, sx, sy, sz, maxX, minY, minZ)) return true;
         return false;
     }
 
-    public static boolean isLineOfSightClear(Level level, Vec3 start, Vec3 end) {
+    public static boolean isLineOfSightClear(Level level, double sx, double sy, double sz, double ex, double ey, double ez) {
         try {
-            int minX = (int) Math.floor(Math.min(start.x, end.x)) >> 4;
-            int minZ = (int) Math.floor(Math.min(start.z, end.z)) >> 4;
-            int maxX = (int) Math.floor(Math.max(start.x, end.x)) >> 4;
-            int maxZ = (int) Math.floor(Math.max(start.z, end.z)) >> 4;
+            int minX = (int) Math.floor(Math.min(sx, ex)) >> 4;
+            int minZ = (int) Math.floor(Math.min(sz, ez)) >> 4;
+            int maxX = (int) Math.floor(Math.max(sx, ex)) >> 4;
+            int maxZ = (int) Math.floor(Math.max(sz, ez)) >> 4;
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     if (!level.hasChunk(x, z)) return true;
                 }
             }
 
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty());
+            ClipContext ctx = new ClipContext(
+                    new Vec3(sx, sy, sz),
+                    new Vec3(ex, ey, ez),
+                    ClipContext.Block.VISUAL,
+                    ClipContext.Fluid.NONE,
+                    CollisionContext.empty()
+            );
             return level.clip(ctx).getType() == HitResult.Type.MISS;
         } catch (Throwable t) {
             return true;
@@ -282,16 +255,14 @@ public class ServerCullingManager {
     }
 
     public static void removePlayer(ServerPlayer player) {
-        if (VISIBILITY_CACHE.remove(player) != null) {
-            updateActiveVisibilityMaps();
-        }
+        VISIBILITY_CACHE.remove(player);
         PARTICLE_CACHE.remove(player);
         ENTITY_CACHE.remove(player);
     }
 
     public static void removeEntity(Entity entity) {
         int id = entity.getId();
-        for (Map<Integer, CullingState> map : activeVisibilityMaps) {
+        for (Map<Integer, CullingState> map : VISIBILITY_CACHE.values()) {
             map.remove(id);
         }
     }
@@ -316,10 +287,12 @@ public class ServerCullingManager {
     public static boolean isParticleVisible(ServerPlayer player, double x, double y, double z) {
         ParticleCullCache cache = getOrCreate(PARTICLE_CACHE, player, ParticleCullCache::new);
 
-        Vec3 eyePos = player.getEyePosition();
-        double dx = x - eyePos.x;
-        double dy = y - eyePos.y;
-        double dz = z - eyePos.z;
+        double eyeX = player.getX();
+        double eyeY = player.getEyeY();
+        double eyeZ = player.getZ();
+        double dx = x - eyeX;
+        double dy = y - eyeY;
+        double dz = z - eyeZ;
         double distanceSq = dx * dx + dy * dy + dz * dz;
 
         if (distanceSq < NEAR_DISTANCE_SQ) {
@@ -338,7 +311,7 @@ public class ServerCullingManager {
             return cache.lastResult;
         }
 
-        boolean result = isLineOfSightClear(player.level(), eyePos, new Vec3(x, y, z));
+        boolean result = isLineOfSightClear(player.level(), eyeX, eyeY, eyeZ, x, y, z);
 
         cache.lastX = fx;
         cache.lastY = fy;
@@ -356,26 +329,12 @@ public class ServerCullingManager {
     }
 
     private static class EntityCullCache {
-        LongArraySet grid = new LongArraySet();
+        LongOpenHashSet grid = new LongOpenHashSet();
         long lastTick = -1;
     }
 
-    private record AsyncAABBCheckTask(CullingState state, Level level, Vec3 eyePos, AABB aabb) implements Runnable {
-        @Override
-        public void run() {
-            try {
-                state.lastRaytraceResult = checkAABBVisible(level, eyePos, aabb);
-            } catch (Exception e) {
-                state.lastRaytraceResult = true;
-            } finally {
-                state.isChecking = false;
-            }
-        }
-    }
-
     private static class CullingState {
-        volatile boolean lastRaytraceResult = true;
-        volatile boolean isChecking = false;
+        boolean lastRaytraceResult = true;
         boolean isCurrentlyVisible = true;
         long lastCheckTime = 0;
         long hiddenSince = 0;
