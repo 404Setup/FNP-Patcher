@@ -61,6 +61,11 @@ public abstract class TrackedEntityMixin implements IKrenoTrackedEntity {
         }
     }
 
+    @Override
+    public boolean kreno$hasTrackingPlayers() {
+        return !this.seenBy.isEmpty();
+    }
+
     @Redirect(method = "updatePlayer", at = @At(value = "INVOKE", target = "Ljava/util/Set;add(Ljava/lang/Object;)Z"))
     private boolean kreno$onSeenByAdd(Set<ServerPlayerConnection> instance, Object e) {
         boolean added = instance.add((ServerPlayerConnection) e);

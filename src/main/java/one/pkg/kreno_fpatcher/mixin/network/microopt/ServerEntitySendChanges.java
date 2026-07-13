@@ -4,13 +4,18 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundRotateHeadPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import one.pkg.kreno_fpatcher.ModConfig;
 import one.pkg.kreno_fpatcher.mixin.accessor.ClientboundMoveEntityPacketAccessor;
+import one.pkg.kreno_fpatcher.util.culling.IKrenoTrackedEntity;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -22,6 +27,16 @@ public class ServerEntitySendChanges {
     @Shadow
     @Final
     private Entity entity;
+
+    @Shadow
+    @Final
+    private ServerEntity.Synchronizer synchronizer;
+
+    @Unique
+    private boolean kreno$shouldSkipPacket() {
+        return (one.pkg.kreno_fpatcher.ModConfig.Mixin.isTrackedEntityOpt() || one.pkg.kreno_fpatcher.ModConfig.Culling.isEntityEnabled())
+                && !((IKrenoTrackedEntity) this.synchronizer).kreno$hasTrackingPlayers();
+    }
 
     /**
      * Rotation-only updates are also skipped if they don't actually change the state.
@@ -42,6 +57,12 @@ public class ServerEntitySendChanges {
             boolean onGround,
             Operation<ClientboundMoveEntityPacket.Rot> original
     ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        if (!ModConfig.Mixin.isServerEntityMoveOpt()) {
+            return original.call(id, yRot, xRot, onGround);
+        }
         if (this.wasOnGround == this.entity.onGround() && yRot == 0 && xRot == 0) {
             return null;
         }
@@ -69,10 +90,96 @@ public class ServerEntitySendChanges {
             boolean onGround,
             Operation<ClientboundMoveEntityPacket.Pos> original
     ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        if (!ModConfig.Mixin.isServerEntityMoveOpt()) {
+            return original.call(id, xa, ya, za, onGround);
+        }
         if (xa == 0 && ya == 0 && za == 0) {
             return null;
         }
         return original.call(id, xa, ya, za, onGround);
+    }
+
+    /**
+     * Skips allocating PosRot packet when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(ISSSBBZ)Lnet/minecraft/network/protocol/game/ClientboundMoveEntityPacket$PosRot;"
+            )
+    )
+    private ClientboundMoveEntityPacket.PosRot kreno$cancelUselessPosRotPacket(
+            int id, short xa, short ya, short za, byte yRot, byte xRot, boolean onGround,
+            Operation<ClientboundMoveEntityPacket.PosRot> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(id, xa, ya, za, yRot, xRot, onGround);
+    }
+
+    /**
+     * Skips allocating SetEntityMotionPacket when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket;"
+            )
+    )
+    private ClientboundSetEntityMotionPacket kreno$cancelUselessMotionPacket(
+            Entity entity,
+            Operation<ClientboundSetEntityMotionPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(entity);
+    }
+
+    /**
+     * Skips allocating SetEntityMotionPacket (with Vec3) when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(ILnet/minecraft/world/phys/Vec3;)Lnet/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket;"
+            )
+    )
+    private ClientboundSetEntityMotionPacket kreno$cancelUselessMotionPacket2(
+            int id, Vec3 movement,
+            Operation<ClientboundSetEntityMotionPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(id, movement);
+    }
+
+    /**
+     * Skips allocating RotateHeadPacket when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(Lnet/minecraft/world/entity/Entity;B)Lnet/minecraft/network/protocol/game/ClientboundRotateHeadPacket;"
+            )
+    )
+    private ClientboundRotateHeadPacket kreno$cancelUselessRotateHeadPacket(
+            Entity entity, byte yHeadRot,
+            Operation<ClientboundRotateHeadPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(entity, yHeadRot);
     }
 
     /**
@@ -96,6 +203,10 @@ public class ServerEntitySendChanges {
     private void kreno$sendChangesPacketGuard(ServerEntity.Synchronizer synchronizer, Packet<?> packet,
                                               Operation<Void> original) {
         if (packet == null) return;
+        if (!ModConfig.Mixin.isServerEntityMoveOpt()) {
+            original.call(synchronizer, packet);
+            return;
+        }
         if (packet instanceof ClientboundMoveEntityPacket.PosRot posRot) {
             ClientboundMoveEntityPacketAccessor accessor = (ClientboundMoveEntityPacketAccessor) posRot;
             if (posRot.getXa() == 0 && posRot.getYa() == 0 && posRot.getZa() == 0) {
@@ -111,13 +222,13 @@ public class ServerEntitySendChanges {
 
     /**
      * Prevents the server from sending redundant 0-velocity packets.
-     * When both the current movement and the last sent movement are small enough 
+     * When both the current movement and the last sent movement are small enough
      * to be quantized as exactly 0 by LpVec3 (abs max < 3.051944088384301E-5),
      * we pretend the distance to the last movement is exactly 0.0.
      * This avoids waking up tracking clients with identical zero-velocity updates.
      */
     @Redirect(
-            method = { "sendChanges", "handleMinecartPosRot" },
+            method = {"sendChanges", "handleMinecartPosRot"},
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/phys/Vec3;distanceToSqr(Lnet/minecraft/world/phys/Vec3;)D"
@@ -128,14 +239,14 @@ public class ServerEntitySendChanges {
         if (diff == 0.0) {
             return 0.0;
         }
-        
+
         double maxCurr = Math.max(Math.abs(currentMovement.x), Math.max(Math.abs(currentMovement.y), Math.abs(currentMovement.z)));
         double maxLast = Math.max(Math.abs(vec.x), Math.max(Math.abs(vec.y), Math.abs(vec.z)));
-        
+
         if (maxCurr < 3.051944088384301E-5 && maxLast < 3.051944088384301E-5) {
             return 0.0;
         }
-        
+
         return diff;
     }
 
