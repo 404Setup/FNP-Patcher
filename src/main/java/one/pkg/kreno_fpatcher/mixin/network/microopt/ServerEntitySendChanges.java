@@ -3,9 +3,7 @@ package one.pkg.kreno_fpatcher.mixin.network.microopt;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
-import net.minecraft.network.protocol.game.ClientboundRotateHeadPacket;
-import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.*;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
@@ -18,6 +16,10 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Predicate;
 
 @Mixin(ServerEntity.class)
 public class ServerEntitySendChanges {
@@ -34,8 +36,28 @@ public class ServerEntitySendChanges {
 
     @Unique
     private boolean kreno$shouldSkipPacket() {
-        return (one.pkg.kreno_fpatcher.ModConfig.Mixin.isTrackedEntityOpt() || one.pkg.kreno_fpatcher.ModConfig.Culling.isEntityEnabled())
+        return (ModConfig.Mixin.isTrackedEntityOpt() || ModConfig.Culling.isEntityEnabled())
                 && !((IKrenoTrackedEntity) this.synchronizer).kreno$hasTrackingPlayers();
+    }
+
+    /**
+     * Skips allocating ClientboundSetPassengersPacket when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/network/protocol/game/ClientboundSetPassengersPacket;"
+            )
+    )
+    private ClientboundSetPassengersPacket kreno$cancelUselessPassengersPacket(
+            Entity vehicle,
+            Operation<ClientboundSetPassengersPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(vehicle);
     }
 
     /**
@@ -123,6 +145,26 @@ public class ServerEntitySendChanges {
     }
 
     /**
+     * Skips allocating ClientboundEntityPositionSyncPacket when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/network/protocol/game/ClientboundEntityPositionSyncPacket;of(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/network/protocol/game/ClientboundEntityPositionSyncPacket;"
+            )
+    )
+    private ClientboundEntityPositionSyncPacket kreno$cancelUselessPositionSyncPacket(
+            Entity entity,
+            Operation<ClientboundEntityPositionSyncPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(entity);
+    }
+
+    /**
      * Skips allocating SetEntityMotionPacket when there are no tracking players.
      */
     @WrapOperation(
@@ -163,6 +205,26 @@ public class ServerEntitySendChanges {
     }
 
     /**
+     * Skips allocating ClientboundProjectilePowerPacket when there are no tracking players.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(ID)Lnet/minecraft/network/protocol/game/ClientboundProjectilePowerPacket;"
+            )
+    )
+    private ClientboundProjectilePowerPacket kreno$cancelUselessProjectilePowerPacket(
+            int id, double accelerationPower,
+            Operation<ClientboundProjectilePowerPacket> original
+    ) {
+        if (kreno$shouldSkipPacket()) {
+            return null;
+        }
+        return original.call(id, accelerationPower);
+    }
+
+    /**
      * Skips allocating RotateHeadPacket when there are no tracking players.
      */
     @WrapOperation(
@@ -183,16 +245,49 @@ public class ServerEntitySendChanges {
     }
 
     /**
-     * Combines two optimizations into one safe call site wrapper:
-     * <p>
-     * 1. Guards against null packets: if a previous WrapOperation (kreno$cancelUselessRotPacket or
-     * kreno$cancelUselessPosPacket) returned null to suppress a redundant update, we skip the send
-     * entirely. Forwarding a null packet to sendToTrackingPlayers would eventually reach
-     * ServerCommonPacketListenerImpl.send() and throw a NullPointerException.
-     * <p>
-     * 2. Downgrades PosRot to Rot when displacement is zero: if the entity only rotated without moving,
-     * we swap the heavier PosRot packet for a smaller Rot packet, reducing bandwidth.
+     * Redirects List.of to filter out nulls safely, avoiding NullPointerException.
      */
+    @Redirect(
+            method = "sendChanges",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Ljava/util/List;of(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/List;"
+            )
+    )
+    private List<?> kreno$cleanListOf(Object e1, Object e2) {
+        if (e1 == null && e2 == null) {
+            return Collections.emptyList();
+        }
+        if (e1 == null) {
+            return Collections.singletonList(e2);
+        }
+        if (e2 == null) {
+            return Collections.singletonList(e1);
+        }
+        return List.of(e1, e2);
+    }
+
+    /**
+     * Skips allocating ClientboundBundlePacket when empty or when skipping packets.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "NEW",
+                    target = "(Ljava/lang/Iterable;)Lnet/minecraft/network/protocol/game/ClientboundBundlePacket;"
+            )
+    )
+    private ClientboundBundlePacket kreno$cancelBundlePacket(
+            Iterable<?> packets,
+            Operation<ClientboundBundlePacket> original
+    ) {
+        if (kreno$shouldSkipPacket() || (packets instanceof List<?> list && list.isEmpty()) ||
+                !packets.iterator().hasNext()) {
+            return null;
+        }
+        return original.call(packets);
+    }
+
     @WrapOperation(
             method = "sendChanges",
             at = @At(
@@ -221,6 +316,39 @@ public class ServerEntitySendChanges {
     }
 
     /**
+     * Guards sendToTrackingPlayersFiltered against null packets.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ServerEntity$Synchronizer;sendToTrackingPlayersFiltered(Lnet/minecraft/network/protocol/Packet;Ljava/util/function/Predicate;)V"
+            )
+    )
+    private void kreno$sendChangesPacketGuardFiltered(ServerEntity.Synchronizer synchronizer, Packet<?> packet,
+                                                      Predicate<?> predicate,
+                                                      Operation<Void> original) {
+        if (packet == null) return;
+        original.call(synchronizer, packet, predicate);
+    }
+
+    /**
+     * Guards sendToTrackingPlayersAndSelf against null packets.
+     */
+    @WrapOperation(
+            method = "sendChanges",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ServerEntity$Synchronizer;sendToTrackingPlayersAndSelf(Lnet/minecraft/network/protocol/Packet;)V"
+            )
+    )
+    private void kreno$sendChangesPacketGuardAndSelf(ServerEntity.Synchronizer synchronizer, Packet<?> packet,
+                                                     Operation<Void> original) {
+        if (packet == null) return;
+        original.call(synchronizer, packet);
+    }
+
+    /**
      * Prevents the server from sending redundant 0-velocity packets.
      * When both the current movement and the last sent movement are small enough
      * to be quantized as exactly 0 by LpVec3 (abs max < 3.051944088384301E-5),
@@ -240,7 +368,8 @@ public class ServerEntitySendChanges {
             return 0.0;
         }
 
-        double maxCurr = Math.max(Math.abs(currentMovement.x), Math.max(Math.abs(currentMovement.y), Math.abs(currentMovement.z)));
+        double maxCurr = Math.max(Math.abs(currentMovement.x), Math.max(Math.abs(currentMovement.y),
+                Math.abs(currentMovement.z)));
         double maxLast = Math.max(Math.abs(vec.x), Math.max(Math.abs(vec.y), Math.abs(vec.z)));
 
         if (maxCurr < 3.051944088384301E-5 && maxLast < 3.051944088384301E-5) {
