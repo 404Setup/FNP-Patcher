@@ -45,7 +45,5 @@
   "kreno_fpatcher.config.entry.culling.entity": "Entity Culling",
   "kreno_fpatcher.config.entry.culling.entity.desc": "Intelligentes Entity Culling auf der Serverseite",
   "kreno_fpatcher.config.entry.culling.particle": "Partikel Culling",
-  "kreno_fpatcher.config.entry.culling.particle.desc": "Intelligentes Partikel Culling auf der Serverseite",
-  "kreno_fpatcher.config.entry.culling.asyncMode": "Asynchrones Culling",
-  "kreno_fpatcher.config.entry.culling.asyncMode.desc": "Asynchroner Ausführungsmodus für das Culling-System"
+  "kreno_fpatcher.config.entry.culling.particle.desc": "Intelligentes Partikel Culling auf der Serverseite"
 }

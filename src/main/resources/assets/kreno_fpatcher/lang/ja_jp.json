@@ -45,7 +45,5 @@
   "kreno_fpatcher.config.entry.culling.entity": "エンティティカリング",
   "kreno_fpatcher.config.entry.culling.entity.desc": "サーバー側でのスマートなエンティティカリングを有効にします",
   "kreno_fpatcher.config.entry.culling.particle": "パーティクルカリング",
-  "kreno_fpatcher.config.entry.culling.particle.desc": "サーバー側でのスマートなパーティクルカリング",
-  "kreno_fpatcher.config.entry.culling.asyncMode": "非同期カリング",
-  "kreno_fpatcher.config.entry.culling.asyncMode.desc": "カリングシステムの非同期実行モード"
+  "kreno_fpatcher.config.entry.culling.particle.desc": "サーバー側でのスマートなパーティクルカリング"
 }

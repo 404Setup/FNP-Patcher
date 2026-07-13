@@ -45,7 +45,5 @@
   "kreno_fpatcher.config.entry.culling.entity": "Куллинг сущностей",
   "kreno_fpatcher.config.entry.culling.entity.desc": "Умный куллинг сущностей на стороне сервера",
   "kreno_fpatcher.config.entry.culling.particle": "Отсечение частиц",
-  "kreno_fpatcher.config.entry.culling.particle.desc": "Умное отсечение частиц на стороне сервера",
-  "kreno_fpatcher.config.entry.culling.asyncMode": "Асинхронное отсечение",
-  "kreno_fpatcher.config.entry.culling.asyncMode.desc": "Асинхронный режим выполнения для системы отсечения"
+  "kreno_fpatcher.config.entry.culling.particle.desc": "Умное отсечение частиц на стороне сервера"
 }

@@ -45,7 +45,5 @@
   "kreno_fpatcher.config.entry.culling.entity": "实体剔除",
   "kreno_fpatcher.config.entry.culling.entity.desc": "在服务端启用智能实体剔除",
   "kreno_fpatcher.config.entry.culling.particle": "粒子剔除",
-  "kreno_fpatcher.config.entry.culling.particle.desc": "在服务端启用智能粒子剔除",
-  "kreno_fpatcher.config.entry.culling.asyncMode": "异步剔除",
-  "kreno_fpatcher.config.entry.culling.asyncMode.desc": "为剔除系统启用异步执行模式"
+  "kreno_fpatcher.config.entry.culling.particle.desc": "在服务端启用智能粒子剔除"
 }
