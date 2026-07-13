@@ -12,6 +12,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import one.pkg.kreno_fpatcher.ModConfig;
 import one.pkg.tinyutils.map.WeakConcurrentHashMap;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -61,10 +62,7 @@ public class ServerCullingManager {
 
         EntityCullCache hashCache = getOrCreate(ENTITY_CACHE, player, EntityCullCache::new);
         long tickCount = player.level().getServer().getTickCount();
-        if (hashCache.lastTick != tickCount) {
-            hashCache.grid.clear();
-            hashCache.lastTick = tickCount;
-        }
+        hashCache.updateLookVector(player, tickCount);
 
         long gridKey = toGridKey(cx, cy, cz);
 
@@ -78,7 +76,8 @@ public class ServerCullingManager {
         float dy = cy - ey;
         float dz = cz - ez;
 
-        boolean inFOV = isInFOVCached(state, dx, dy, dz, rotX, rotY, distanceSq);
+        double dot = hashCache.lookX * dx + hashCache.lookY * dy + hashCache.lookZ * dz;
+        boolean inFOV = dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
 
         if (inFOV) {
             boolean justEnteredFOV = !state.wasInFOV;
@@ -160,39 +159,6 @@ public class ServerCullingManager {
         return false;
     }
 
-    private static boolean isInFOV(float dx, float dy, float dz, float rotX, float rotY, float distanceSq) {
-        float f = rotX * DEG_TO_RAD;
-        float g = -rotY * DEG_TO_RAD;
-        float cosG = (float) Math.cos(g);
-        float sinG = (float) Math.sin(g);
-        float cosF = (float) Math.cos(f);
-        float sinF = (float) Math.sin(f);
-        double lVx = sinG * cosF;
-        double lVy = -sinF;
-        double lVz = cosG * cosF;
-
-        double dot = lVx * dx + lVy * dy + lVz * dz;
-        return dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
-    }
-
-    private static boolean isInFOVCached(CullingState state, float dx, float dy, float dz, float rotX, float rotY, float distanceSq) {
-        if (Math.abs(state.cachedRotX - rotX) >= 0.01f || Math.abs(state.cachedRotY - rotY) >= 0.01f) {
-            float f = rotX * DEG_TO_RAD;
-            float g = -rotY * DEG_TO_RAD;
-            state.cosF = (float) Math.cos(f);
-            state.sinF = (float) Math.sin(f);
-            state.cosG = (float) Math.cos(g);
-            state.sinG = (float) Math.sin(g);
-            state.cachedRotX = rotX;
-            state.cachedRotY = rotY;
-        }
-        double lVx = state.sinG * state.cosF;
-        double lVy = -state.sinF;
-        double lVz = state.cosG * state.cosF;
-        double dot = lVx * dx + lVy * dy + lVz * dz;
-        return dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
-    }
-
     private static void updateVisibilityState(CullingState state, boolean isVisible, long now) {
         if (!isVisible) {
             if (state.hiddenSince == 0) {
@@ -219,14 +185,7 @@ public class ServerCullingManager {
         double cz = minZ + (maxZ - minZ) * 0.5;
 
         if (isLineOfSightClear(level, sx, sy, sz, cx, cy, cz)) return true;
-
-        if (isLineOfSightClear(level, sx, sy, sz, cx, maxY, cz)) return true;
-        if (isLineOfSightClear(level, sx, sy, sz, cx, minY, cz)) return true;
-        if (isLineOfSightClear(level, sx, sy, sz, minX, maxY, minZ)) return true;
-        if (isLineOfSightClear(level, sx, sy, sz, maxX, maxY, maxZ)) return true;
-        if (isLineOfSightClear(level, sx, sy, sz, minX, minY, maxZ)) return true;
-        if (isLineOfSightClear(level, sx, sy, sz, maxX, minY, minZ)) return true;
-        return false;
+        return isLineOfSightClear(level, sx, sy, sz, cx, maxY, cz);
     }
 
     public static boolean isLineOfSightClear(Level level, double sx, double sy, double sz, double ex, double ey, double ez) {
@@ -235,9 +194,12 @@ public class ServerCullingManager {
             int minZ = (int) Math.floor(Math.min(sz, ez)) >> 4;
             int maxX = (int) Math.floor(Math.max(sx, ex)) >> 4;
             int maxZ = (int) Math.floor(Math.max(sz, ez)) >> 4;
-            for (int x = minX; x <= maxX; x++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    if (!level.hasChunk(x, z)) return true;
+
+            if (maxX - minX > 1 || maxZ - minZ > 1) {
+                for (int x = minX; x <= maxX; x++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        if (!level.hasChunk(x, z)) return true;
+                    }
                 }
             }
 
@@ -285,7 +247,11 @@ public class ServerCullingManager {
     }
 
     public static boolean isParticleVisible(ServerPlayer player, double x, double y, double z) {
+        if (!ModConfig.Culling.isParticleEnabled() || !player.level().getServer().isDedicatedServer()) return true;
+
         ParticleCullCache cache = getOrCreate(PARTICLE_CACHE, player, ParticleCullCache::new);
+        long tickCount = player.level().getServer().getTickCount();
+        cache.updateLookVector(player, tickCount);
 
         double eyeX = player.getX();
         double eyeY = player.getEyeY();
@@ -299,38 +265,100 @@ public class ServerCullingManager {
             return true;
         }
 
-        boolean inFOV = isInFOV((float) dx, (float) dy, (float) dz, player.getXRot(), player.getYRot(), (float) distanceSq);
+        double dot = cache.lookX * dx + cache.lookY * dy + cache.lookZ * dz;
+        boolean inFOV = dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
 
         if (!inFOV) return false;
 
-        float fx = (float) x;
-        float fy = (float) y;
-        float fz = (float) z;
+        int bx = (int) Math.floor(x);
+        int by = (int) Math.floor(y);
+        int bz = (int) Math.floor(z);
+        long key = ((long) bx & 0x3FFFFFFL) | (((long) by & 0xFFFL) << 26) | (((long) bz & 0x3FFFFFFL) << 38);
 
-        if (Math.abs(cache.lastX - fx) < 1.0f && Math.abs(cache.lastY - fy) < 1.0f && Math.abs(cache.lastZ - fz) < 1.0f) {
-            return cache.lastResult;
+        long now = System.currentTimeMillis();
+        int cachedVal = cache.get(key, now);
+        if (cachedVal != -1) {
+            return cachedVal == 1;
         }
 
         boolean result = isLineOfSightClear(player.level(), eyeX, eyeY, eyeZ, x, y, z);
-
-        cache.lastX = fx;
-        cache.lastY = fy;
-        cache.lastZ = fz;
-        cache.lastResult = result;
+        cache.put(key, result, now);
 
         return result;
     }
 
     private static class ParticleCullCache {
-        float lastX = Float.MAX_VALUE;
-        float lastY = Float.MAX_VALUE;
-        float lastZ = Float.MAX_VALUE;
-        boolean lastResult = true;
+        long lastTick = -1;
+        double lookX;
+        double lookY;
+        double lookZ;
+
+        private static final int CACHE_SIZE = 128;
+        private final long[] keys = new long[CACHE_SIZE];
+        private final boolean[] values = new boolean[CACHE_SIZE];
+        private final long[] times = new long[CACHE_SIZE];
+
+        public ParticleCullCache() {
+            Arrays.fill(keys, -1L);
+        }
+
+        public void updateLookVector(ServerPlayer player, long tickCount) {
+            if (this.lastTick != tickCount) {
+                float rotX = player.getXRot();
+                float rotY = player.getYRot();
+                float f = rotX * DEG_TO_RAD;
+                float g = -rotY * DEG_TO_RAD;
+                float cosG = (float) Math.cos(g);
+                float sinG = (float) Math.sin(g);
+                float cosF = (float) Math.cos(f);
+                float sinF = (float) Math.sin(f);
+                this.lookX = sinG * cosF;
+                this.lookY = -sinF;
+                this.lookZ = cosG * cosF;
+                this.lastTick = tickCount;
+            }
+        }
+
+        public int get(long key, long now) {
+            int index = (int) (key & 127);
+            if (keys[index] == key && now - times[index] < 1000) {
+                return values[index] ? 1 : 0;
+            }
+            return -1;
+        }
+
+        public void put(long key, boolean value, long now) {
+            int index = (int) (key & 127);
+            keys[index] = key;
+            values[index] = value;
+            times[index] = now;
+        }
     }
 
     private static class EntityCullCache {
         LongOpenHashSet grid = new LongOpenHashSet();
         long lastTick = -1;
+        double lookX;
+        double lookY;
+        double lookZ;
+
+        public void updateLookVector(ServerPlayer player, long tickCount) {
+            if (this.lastTick != tickCount) {
+                float rotX = player.getXRot();
+                float rotY = player.getYRot();
+                float f = rotX * DEG_TO_RAD;
+                float g = -rotY * DEG_TO_RAD;
+                float cosG = (float) Math.cos(g);
+                float sinG = (float) Math.sin(g);
+                float cosF = (float) Math.cos(f);
+                float sinF = (float) Math.sin(f);
+                this.lookX = sinG * cosF;
+                this.lookY = -sinF;
+                this.lookZ = cosG * cosF;
+                this.grid.clear();
+                this.lastTick = tickCount;
+            }
+        }
     }
 
     private static class CullingState {
@@ -348,12 +376,6 @@ public class ServerCullingManager {
         float lastTz = Float.MAX_VALUE;
         float lastRotX = Float.MAX_VALUE;
         float lastRotY = Float.MAX_VALUE;
-        float cachedRotX = Float.MAX_VALUE;
-        float cachedRotY = Float.MAX_VALUE;
-        float sinF = 0f;
-        float cosF = 1f;
-        float sinG = 0f;
-        float cosG = 1f;
         boolean wasInFOV = false;
     }
 }
