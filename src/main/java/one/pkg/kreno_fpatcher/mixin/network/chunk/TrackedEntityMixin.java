@@ -26,11 +26,11 @@ public abstract class TrackedEntityMixin implements IKrenoTrackedEntity {
     @Shadow
     @Final
     private Entity entity;
-    
+
     @Shadow
     @Final
     private Set<ServerPlayerConnection> seenBy;
-    
+
     @Shadow
     @Final
     private ServerEntity serverEntity;
@@ -43,11 +43,11 @@ public abstract class TrackedEntityMixin implements IKrenoTrackedEntity {
         if (!ModConfig.Culling.isEntityEnabled()) return;
         this.kreno$cullingTickCounter++;
         if ((this.kreno$cullingTickCounter + this.entity.getId()) % 10 != 0) return;
-        
-        long now = System.currentTimeMillis();
+
+        long tickCount = this.entity.level().getServer().getTickCount();
         for (ServerPlayerConnection conn : this.seenBy) {
             ServerPlayer player = conn.getPlayer();
-            boolean isVisible = ServerCullingManager.isEntityVisible(player, this.entity, now);
+            boolean isVisible = ServerCullingManager.isEntityVisible(player, this.entity, tickCount);
             boolean wasVisible = ServerCullingManager.getLastSentVisible(player, this.entity);
 
             if (isVisible != wasVisible) {

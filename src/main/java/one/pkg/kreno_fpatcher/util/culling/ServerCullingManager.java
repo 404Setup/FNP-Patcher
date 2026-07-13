@@ -21,8 +21,8 @@ public class ServerCullingManager {
     public static final double NEAR_DISTANCE_SQ = 64.0;
     private static final float DEG_TO_RAD = (float) Math.PI / 180F;
     private static final Map<ServerPlayer, Map<Integer, CullingState>> VISIBILITY_CACHE = new WeakConcurrentHashMap<>();
-    private static final long CHECK_INTERVAL_MS = 500;
-    private static final long HIDE_DELAY_MS = 1000;
+    private static final long CHECK_INTERVAL_TICKS = 10;
+    private static final long HIDE_DELAY_TICKS = 20;
     private static final Map<ServerPlayer, ParticleCullCache> PARTICLE_CACHE = new WeakConcurrentHashMap<>();
     private static final Map<ServerPlayer, EntityCullCache> ENTITY_CACHE = new WeakConcurrentHashMap<>();
 
@@ -32,7 +32,17 @@ public class ServerCullingManager {
         ENTITY_CACHE.clear();
     }
 
-    public static boolean isEntityVisible(ServerPlayer player, Entity entity, long now) {
+    private static int fastFloor(double val) {
+        int i = (int) val;
+        return val < i ? i - 1 : i;
+    }
+
+    private static int fastFloor(float val) {
+        int i = (int) val;
+        return val < i ? i - 1 : i;
+    }
+
+    public static boolean isEntityVisible(ServerPlayer player, Entity entity, long tickCount) {
         if (!ModConfig.Culling.isEntityEnabled() || !player.level().getServer().isDedicatedServer()) return true;
 
         CullingState state = getEntityCullingState(player, entity);
@@ -50,7 +60,10 @@ public class ServerCullingManager {
             return state.isCurrentlyVisible;
         }
 
-        float distanceSq = (float) player.distanceToSqr(entity);
+        float dx = cx - ex;
+        float dy = cy - ey;
+        float dz = cz - ez;
+        float distanceSq = dx * dx + dy * dy + dz * dz;
         state.lastDistanceSq = distanceSq;
 
         if (distanceSq < NEAR_DISTANCE_SQ) {
@@ -61,7 +74,6 @@ public class ServerCullingManager {
         }
 
         EntityCullCache hashCache = getOrCreate(ENTITY_CACHE, player, EntityCullCache::new);
-        long tickCount = player.level().getServer().getTickCount();
         hashCache.updateLookVector(player, tickCount);
 
         long gridKey = toGridKey(cx, cy, cz);
@@ -72,18 +84,14 @@ public class ServerCullingManager {
             return true;
         }
 
-        float dx = cx - ex;
-        float dy = cy - ey;
-        float dz = cz - ez;
-
         double dot = hashCache.lookX * dx + hashCache.lookY * dy + hashCache.lookZ * dz;
         boolean inFOV = dot >= 0 || (dot * dot <= 0.0225 * distanceSq);
 
         if (inFOV) {
             boolean justEnteredFOV = !state.wasInFOV;
             state.wasInFOV = true;
-            if (justEnteredFOV || now - state.lastCheckTime > CHECK_INTERVAL_MS) {
-                state.lastCheckTime = now;
+            if (justEnteredFOV || tickCount - state.lastCheckTick > CHECK_INTERVAL_TICKS) {
+                state.lastCheckTick = tickCount;
                 try {
                     state.lastRaytraceResult = checkAABBVisibleInflated(player.level(), ex, ey, ez, entity.getBoundingBox(), 0.5);
                 } catch (Exception e) {
@@ -95,7 +103,7 @@ public class ServerCullingManager {
         }
 
         boolean isVisible = inFOV && state.lastRaytraceResult;
-        updateVisibilityState(state, isVisible, now);
+        updateVisibilityState(state, isVisible, tickCount);
 
         if (state.isCurrentlyVisible) {
             hashCache.grid.add(gridKey);
@@ -159,11 +167,11 @@ public class ServerCullingManager {
         return false;
     }
 
-    private static void updateVisibilityState(CullingState state, boolean isVisible, long now) {
+    private static void updateVisibilityState(CullingState state, boolean isVisible, long tickCount) {
         if (!isVisible) {
             if (state.hiddenSince == 0) {
-                state.hiddenSince = now;
-            } else if (now - state.hiddenSince > HIDE_DELAY_MS) {
+                state.hiddenSince = tickCount;
+            } else if (tickCount - state.hiddenSince > HIDE_DELAY_TICKS) {
                 state.isCurrentlyVisible = false;
             }
         } else {
@@ -190,10 +198,10 @@ public class ServerCullingManager {
 
     public static boolean isLineOfSightClear(Level level, double sx, double sy, double sz, double ex, double ey, double ez) {
         try {
-            int minX = (int) Math.floor(Math.min(sx, ex)) >> 4;
-            int minZ = (int) Math.floor(Math.min(sz, ez)) >> 4;
-            int maxX = (int) Math.floor(Math.max(sx, ex)) >> 4;
-            int maxZ = (int) Math.floor(Math.max(sz, ez)) >> 4;
+            int minX = fastFloor(Math.min(sx, ex)) >> 4;
+            int minZ = fastFloor(Math.min(sz, ez)) >> 4;
+            int maxX = fastFloor(Math.max(sx, ex)) >> 4;
+            int maxZ = fastFloor(Math.max(sz, ez)) >> 4;
 
             if (maxX - minX > 1 || maxZ - minZ > 1) {
                 for (int x = minX; x <= maxX; x++) {
@@ -240,9 +248,9 @@ public class ServerCullingManager {
     }
 
     private static long toGridKey(float cx, float cy, float cz) {
-        int gridX = (int) Math.floor(cx / 8.0);
-        int gridY = (int) Math.floor(cy / 8.0);
-        int gridZ = (int) Math.floor(cz / 8.0);
+        int gridX = fastFloor(cx * 0.125f);
+        int gridY = fastFloor(cy * 0.125f);
+        int gridZ = fastFloor(cz * 0.125f);
         return ((long) (gridX & 0x3FFFFF) << 42) | ((long) (gridY & 0xFFFFF) << 22) | (gridZ & 0x3FFFFF);
     }
 
@@ -270,33 +278,31 @@ public class ServerCullingManager {
 
         if (!inFOV) return false;
 
-        int bx = (int) Math.floor(x);
-        int by = (int) Math.floor(y);
-        int bz = (int) Math.floor(z);
+        int bx = fastFloor(x);
+        int by = fastFloor(y);
+        int bz = fastFloor(z);
         long key = ((long) bx & 0x3FFFFFFL) | (((long) by & 0xFFFL) << 26) | (((long) bz & 0x3FFFFFFL) << 38);
 
-        long now = System.currentTimeMillis();
-        int cachedVal = cache.get(key, now);
+        int cachedVal = cache.get(key, tickCount);
         if (cachedVal != -1) {
             return cachedVal == 1;
         }
 
         boolean result = isLineOfSightClear(player.level(), eyeX, eyeY, eyeZ, x, y, z);
-        cache.put(key, result, now);
+        cache.put(key, result, tickCount);
 
         return result;
     }
 
     private static class ParticleCullCache {
-        long lastTick = -1;
-        double lookX;
-        double lookY;
-        double lookZ;
-
         private static final int CACHE_SIZE = 128;
         private final long[] keys = new long[CACHE_SIZE];
         private final boolean[] values = new boolean[CACHE_SIZE];
         private final long[] times = new long[CACHE_SIZE];
+        long lastTick = -1;
+        double lookX;
+        double lookY;
+        double lookZ;
 
         public ParticleCullCache() {
             Arrays.fill(keys, -1L);
@@ -319,19 +325,19 @@ public class ServerCullingManager {
             }
         }
 
-        public int get(long key, long now) {
+        public int get(long key, long tickCount) {
             int index = (int) (key & 127);
-            if (keys[index] == key && now - times[index] < 1000) {
+            if (keys[index] == key && tickCount - times[index] < 20) {
                 return values[index] ? 1 : 0;
             }
             return -1;
         }
 
-        public void put(long key, boolean value, long now) {
+        public void put(long key, boolean value, long tickCount) {
             int index = (int) (key & 127);
             keys[index] = key;
             values[index] = value;
-            times[index] = now;
+            times[index] = tickCount;
         }
     }
 
@@ -364,7 +370,7 @@ public class ServerCullingManager {
     private static class CullingState {
         boolean lastRaytraceResult = true;
         boolean isCurrentlyVisible = true;
-        long lastCheckTime = 0;
+        long lastCheckTick = 0;
         long hiddenSince = 0;
         float lastDistanceSq = 0;
         boolean lastSentVisible = true;
