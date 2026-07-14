@@ -38,8 +38,6 @@ public class ModConfig {
     private static boolean cullingParticle = true;
     @ConfigTarget(group = "culling", value = "entity", comment = "Smart entity culling on server side")
     private static boolean cullingEntity = true;
-    @ConfigTarget(group = "culling", value = "asyncMode", comment = "Asynchronous execution mode for Cuttings system")
-    private static boolean cullingAsyncMode = true;
 
     static {
         config = new SewliaConfig(ConfigMeta.of(
@@ -114,10 +112,6 @@ public class ModConfig {
 
         public static boolean isEntityEnabled() {
             return !JavaLoader.INSTANCE.isClient() && cullingEntity;
-        }
-
-        public static boolean isAsyncMode() {
-            return cullingAsyncMode;
         }
     }
 }
